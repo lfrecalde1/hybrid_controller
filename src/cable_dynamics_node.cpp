@@ -16,7 +16,7 @@ class CableDynamicsNode : public rclcpp::Node {
 public:
   CableDynamicsNode() : Node("hybrid_cable_dynamics_node"), plant_(params_) {
     state_.x1 = Vec3(0.0, 0.0, 0.0);
-    state_.x2 = Vec3(0.0, 0.0, -0.99);
+    state_.x2 = Vec3(0.0, 0.0, -0.3);
     state_.v1 = Vec3::Zero();
     state_.v2 = Vec3::Zero();
 

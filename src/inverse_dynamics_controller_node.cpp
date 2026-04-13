@@ -18,7 +18,7 @@
 namespace hybrid_controller {
 
 struct ILQRConfig {
-  int horizon{20};
+  int horizon{100};
   int max_iters{10};
   double reg_min{1.0e-6};
   double reg_max{1.0e6};
@@ -33,7 +33,7 @@ struct Weights {
   Eigen::Matrix3d q_carrier_vel{Eigen::Vector3d(5.0, 5.0, 5.0).asDiagonal()};
   Eigen::Matrix3d q_payload_vel{Eigen::Vector3d(5.0, 5.0, 5.0).asDiagonal()};
   // Eigen::Matrix3d r_u{Eigen::Vector3d(9.0e-1, 9.0e-1, 9.0e-1).asDiagonal()};
-  Eigen::Matrix3d r_u{Eigen::Vector3d(9.0e-4, 9.0e-4, 9.0e-4).asDiagonal()};
+  Eigen::Matrix3d r_u{Eigen::Vector3d(9.0e-3, 9.0e-3, 9.0e-3).asDiagonal()};
   Eigen::Matrix3d qf_payload{Eigen::Vector3d(120.0, 120.0, 180.0).asDiagonal()};
 };
 
@@ -486,7 +486,7 @@ private:
   }()};
   ILQRConfig cfg_{};
   Weights weights_{};
-  Vec3 payload_target_{Vec3(2.5, 0.0, 2.5)};
+  Vec3 payload_target_{Vec3(2.5, 2.5, 2.5)};
   SoftplusCablePlant dynamics_plant_;
   SoftplusCablePlant linearization_plant_;
   ILQRCost cost_;
