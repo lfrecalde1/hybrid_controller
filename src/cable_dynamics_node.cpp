@@ -41,7 +41,8 @@ public:
     timer_ = create_wall_timer(std::chrono::duration<double>(params_.dt),
                                std::bind(&CableDynamicsNode::step, this));
 
-    RCLCPP_INFO(get_logger(), "Hybrid cable dynamics node started");
+    RCLCPP_INFO(get_logger(), "Hybrid cable dynamics node started (mu=%.3e)",
+                params_.mu);
   }
 
 private:
@@ -107,7 +108,11 @@ private:
     return msg;
   }
 
-  Params params_{};
+  Params params_{[] {
+    Params p;
+    p.mu = 1.0e-8;
+    return p;
+  }()};
   SoftplusCablePlant plant_;
   State state_{};
   Vec3 last_force_{Vec3::Zero()};

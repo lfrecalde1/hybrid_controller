@@ -93,26 +93,10 @@ public:
 
   Vec7 initial_guess(const State &state, const Vec3 &u) const {
     const Vec6 v_free = free_velocity(state, u);
-    Vec3 n = state.x2 - state.x1;
-    double dist = n.norm();
-    if (dist < 1.0e-9) {
-      dist = 1.0e-9;
-      n = Vec3(0.0, 0.0, -1.0);
-    } else {
-      n /= dist;
-    }
-
-    Eigen::Matrix<double, 1, 6> j_row;
-    j_row << -n.transpose(), n.transpose();
-    const double phi = dist - params_.cable_length;
-    double s0 = -(phi + params_.dt * (j_row * v_free)(0, 0));
-    s0 = std::max(1.0e-6, s0 + 1.0e-4);
-    const double gamma0 = params_.mu / s0;
-    const double w0 = gamma0 - s0;
 
     Vec7 z;
     z.segment<6>(0) = v_free;
-    z(6) = w0;
+    z(6) = 0.0;
     return z;
   }
 

@@ -32,12 +32,14 @@ struct Weights {
   Eigen::Matrix3d q_payload{Eigen::Vector3d(40.0, 40.0, 80.0).asDiagonal()};
   Eigen::Matrix3d q_carrier_vel{Eigen::Vector3d(5.0, 5.0, 5.0).asDiagonal()};
   Eigen::Matrix3d q_payload_vel{Eigen::Vector3d(5.0, 5.0, 5.0).asDiagonal()};
-  Eigen::Matrix3d r_u{Eigen::Vector3d(9.0e-3, 9.0e-3, 9.0e-3).asDiagonal()};
+  // Eigen::Matrix3d r_u{Eigen::Vector3d(9.0e-1, 9.0e-1, 9.0e-1).asDiagonal()};
+  Eigen::Matrix3d r_u{Eigen::Vector3d(9.0e-4, 9.0e-4, 9.0e-4).asDiagonal()};
   Eigen::Matrix3d qf_payload{Eigen::Vector3d(120.0, 120.0, 180.0).asDiagonal()};
 };
 
 struct RolloutResult {
   std::vector<State> x_seq;
+  std::vector<Vec3> u_seq;
   std::vector<Vec7> z_seq;
   std::vector<MatA> a_seq;
   std::vector<MatB> b_seq;
@@ -112,9 +114,11 @@ private:
 
 class IFTiLQRController {
 public:
-  IFTiLQRController(const SoftplusCablePlant &plant, const ILQRConfig &cfg,
-                    const ILQRCost &cost)
-      : plant_(plant), cfg_(cfg), cost_(cost),
+  IFTiLQRController(const SoftplusCablePlant &dynamics_plant,
+                    const SoftplusCablePlant &linearization_plant,
+                    const ILQRConfig &cfg, const ILQRCost &cost)
+      : dynamics_plant_(dynamics_plant),
+        linearization_plant_(linearization_plant), cfg_(cfg), cost_(cost),
         u_seq_(static_cast<std::size_t>(cfg.horizon), Vec3::Zero()),
         reg_(cfg.reg_init) {}
 
@@ -194,6 +198,7 @@ private:
                                    const std::vector<Vec3> &u_seq) const {
     RolloutResult result;
     result.x_seq.reserve(static_cast<std::size_t>(cfg_.horizon) + 1U);
+    result.u_seq.reserve(static_cast<std::size_t>(cfg_.horizon));
     result.z_seq.reserve(static_cast<std::size_t>(cfg_.horizon));
     result.a_seq.reserve(static_cast<std::size_t>(cfg_.horizon));
     result.b_seq.reserve(static_cast<std::size_t>(cfg_.horizon));
@@ -208,10 +213,10 @@ private:
       double residual_norm = 0.0;
       MatA a = MatA::Zero();
       MatB b = MatB::Zero();
-      const bool linearized = plant_.linearize(result.x_seq.back(), uk, &a, &b,
-                                               &z_guess, &residual_norm);
-      const State x_next = plant_.step(result.x_seq.back(), uk, &z_guess,
-                                       &converged, &residual_norm);
+      const bool linearized = linearization_plant_.linearize(
+          result.x_seq.back(), uk, &a, &b, &z_guess, &residual_norm);
+      const State x_next = dynamics_plant_.step(
+          result.x_seq.back(), uk, &z_guess, &converged, &residual_norm);
 
       result.cost += cost_.stage_cost(result.x_seq.back(), uk);
       if (!linearized || !converged) {
@@ -219,6 +224,7 @@ private:
       }
 
       result.x_seq.push_back(x_next);
+      result.u_seq.push_back(uk);
       result.z_seq.push_back(z_guess);
       result.a_seq.push_back(a);
       result.b_seq.push_back(b);
@@ -245,9 +251,8 @@ private:
       Eigen::Matrix<double, 3, 12> lux = Eigen::Matrix<double, 3, 12>::Zero();
 
       cost_.stage_derivatives(rollout.x_seq[static_cast<std::size_t>(k)],
-                              clamp_control(u_seq_[static_cast<std::size_t>(k)],
-                                            cfg_.u_min, cfg_.u_max),
-                              &lx, &lu, &lxx, &luu, &lux);
+                              rollout.u_seq[static_cast<std::size_t>(k)], &lx,
+                              &lu, &lxx, &luu, &lux);
 
       const MatA &a = rollout.a_seq[static_cast<std::size_t>(k)];
       const MatB &b = rollout.b_seq[static_cast<std::size_t>(k)];
@@ -290,6 +295,7 @@ private:
 
     RolloutResult rollout;
     rollout.x_seq.reserve(static_cast<std::size_t>(cfg_.horizon) + 1U);
+    rollout.u_seq.reserve(static_cast<std::size_t>(cfg_.horizon));
     rollout.z_seq.reserve(static_cast<std::size_t>(cfg_.horizon));
     rollout.a_seq.reserve(static_cast<std::size_t>(cfg_.horizon));
     rollout.b_seq.reserve(static_cast<std::size_t>(cfg_.horizon));
@@ -317,10 +323,10 @@ private:
       double residual_norm = 0.0;
       MatA a = MatA::Zero();
       MatB b = MatB::Zero();
-      const bool linearized =
-          plant_.linearize(current, uk, &a, &b, &z_guess, &residual_norm);
-      const State x_next =
-          plant_.step(current, uk, &z_guess, &converged, &residual_norm);
+      const bool linearized = linearization_plant_.linearize(
+          current, uk, &a, &b, &z_guess, &residual_norm);
+      const State x_next = dynamics_plant_.step(current, uk, &z_guess,
+                                                &converged, &residual_norm);
 
       rollout.cost += cost_.stage_cost(current, uk);
       if (!linearized || !converged) {
@@ -328,6 +334,7 @@ private:
       }
 
       rollout.x_seq.push_back(x_next);
+      rollout.u_seq.push_back(uk);
       rollout.z_seq.push_back(z_guess);
       rollout.a_seq.push_back(a);
       rollout.b_seq.push_back(b);
@@ -337,7 +344,8 @@ private:
     return {u_new, rollout};
   }
 
-  const SoftplusCablePlant &plant_;
+  const SoftplusCablePlant &dynamics_plant_;
+  const SoftplusCablePlant &linearization_plant_;
   ILQRConfig cfg_;
   ILQRCost cost_;
   std::vector<Vec3> u_seq_;
@@ -347,8 +355,11 @@ private:
 class InverseDynamicsControllerNode : public rclcpp::Node {
 public:
   InverseDynamicsControllerNode()
-      : Node("hybrid_inverse_dynamics_controller_node"), plant_(params_),
-        cost_(weights_, payload_target_), controller_(plant_, cfg_, cost_) {
+      : Node("hybrid_inverse_dynamics_controller_node"),
+        dynamics_plant_(dynamics_params_),
+        linearization_plant_(linearization_params_),
+        cost_(weights_, payload_target_),
+        controller_(dynamics_plant_, linearization_plant_, cfg_, cost_) {
     carrier_sub_ = create_subscription<nav_msgs::msg::Odometry>(
         "/carrier/odom", 10,
         std::bind(&InverseDynamicsControllerNode::carrier_callback, this,
@@ -372,10 +383,13 @@ public:
         "/hybrid_controller/payload_horizon_path", 10);
 
     timer_ = create_wall_timer(
-        std::chrono::duration<double>(params_.dt_nmpc),
+        std::chrono::duration<double>(dynamics_params_.dt_nmpc),
         std::bind(&InverseDynamicsControllerNode::step, this));
 
-    RCLCPP_INFO(get_logger(), "Hybrid IFT-iLQR controller node started");
+    RCLCPP_INFO(get_logger(),
+                "Hybrid IFT-iLQR controller node started "
+                "(mu_dynamics=%.3e, mu_ilqr=%.3e)",
+                dynamics_params_.mu, linearization_params_.mu);
   }
 
 private:
@@ -460,11 +474,21 @@ private:
     return path;
   }
 
-  Params params_{};
+  Params dynamics_params_{[] {
+    Params p;
+    p.mu = 1.0e-3;
+    return p;
+  }()};
+  Params linearization_params_{[] {
+    Params p;
+    p.mu = 1.0e-3;
+    return p;
+  }()};
   ILQRConfig cfg_{};
   Weights weights_{};
-  Vec3 payload_target_{Vec3(1.5, 0.0, 1.5)};
-  SoftplusCablePlant plant_;
+  Vec3 payload_target_{Vec3(2.5, 0.0, 2.5)};
+  SoftplusCablePlant dynamics_plant_;
+  SoftplusCablePlant linearization_plant_;
   ILQRCost cost_;
   IFTiLQRController controller_;
   State state_{};
